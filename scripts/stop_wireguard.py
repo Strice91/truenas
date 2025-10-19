@@ -15,10 +15,10 @@
 # USAGE (Cron Job):
 # The cron interval must be equal to or greater than the script's internal --timeout.
 #
-#   * * * * * /path/to/zfs-wg-monitor-polling.py <interface_name> [OPTIONS]
+#   * * * * * /path/to/stop_wireguard.py <interface_name> [OPTIONS]
 #
 # EXAMPLE Cron Entry (Runs every 5 minutes, allowing 60 seconds of polling):
-#   */5 * * * * /usr/local/bin/zfs-wg-monitor-polling.py wg0 --timeout 60 --interval 5 >> /var/log/wg_zfs_monitor.log 2>&1
+#   */5 * * * * /usr/local/bin/stop_wireguard.py wg0 --timeout 60 --interval 5 >> /var/log/stop_wireguard.log 2>&1
 #
 
 import subprocess

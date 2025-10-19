@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 #
-# wg-pre-replication.py
-#
 # DESCRIPTION:
 # This script is designed to be called by a cron job immediately before the ZFS 
 # replication task begins. Its sole purpose is to establish the necessary 
@@ -16,10 +14,10 @@
 # and it will not fail.
 #
 # USAGE (Cron Job):
-#   * * * * * /path/to/wg-pre-replication.py <interface_name>
+#   * * * * * /path/to/start_wireguard.py <interface_name>
 #
 # EXAMPLE Cron Entry (Scheduled before replication):
-#   0 2 * * * /usr/local/bin/wg-pre-replication.py wg0 >> /var/log/wg_pre_replication.log 2>&1
+#   0 2 * * * /usr/local/bin/start_wireguard.py wg0 >> /var/log/start_wireguard.log 2>&1
 #
 # ARGUMENTS:
 #   interface:   The name of the WireGuard interface to manage (e.g., wg0).
