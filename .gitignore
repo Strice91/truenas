@@ -1,0 +1,55 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / build artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Python coverage / test reports
+.coverage
+coverage.xml
+htmlcov/
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+
+# Exported TrueNAS config tarballs (if ever created in repo tree by mistake)
+config-export-*.tar
+
+# Secrets / local config
+.env
+*.env
+secrets/
+pwenc_secret
+credentials.json
+config.yml
+config.yaml
+config.json
+
+# IDE / editor files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker / compose (local overrides)
+docker-compose.override.yml
+.env.*.local
