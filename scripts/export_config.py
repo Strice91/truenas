@@ -34,9 +34,7 @@ from typing import List
 def check_root() -> None:
     """Verify that the script is executed with root privileges."""
     if os.geteuid() != 0:
-        print(
-            f"[{time.ctime()}] ERROR: This script must be run as root to access configuration files."
-        )
+        print(f"[{time.ctime()}] ERROR: This script must be run as root!")
         sys.exit(1)
 
 
@@ -70,9 +68,7 @@ def cleanup_old_exports(destination: Path, hostname: str, days: int) -> None:
         hostname: The hostname prefix to match.
         days: Number of days to retain files.
     """
-    print(
-        f"[{time.ctime()}] Cleaning up exports in '{destination}' older than {days} days."
-    )
+    print(f"[{time.ctime()}] Cleaning up '{destination}' older than {days} days.")
     cutoff = time.time() - (days * 86400)
 
     # Matches files starting with 'config-export-[hostname]'
@@ -117,9 +113,7 @@ def run_export(destination: Path, include_secret: bool, retention: int) -> None:
                 if file_path.exists():
                     tar.add(file_path, arcname=file_name)
                 else:
-                    print(
-                        f"[{time.ctime()}] Warning: {file_name} not found in {source_dir}"
-                    )
+                    print(f"[{time.ctime()}] Warning: {file_name} not found in {source_dir}")
 
         print(f"[{time.ctime()}] Configuration successfully exported.")
         cleanup_old_exports(destination, hostname, retention)
@@ -132,24 +126,10 @@ def run_export(destination: Path, include_secret: bool, retention: int) -> None:
 def main():
     print("### TrueNAS Configuration Export ###")
 
-    parser = argparse.ArgumentParser(
-        description="Export TrueNAS config for ZFS replication."
-    )
-    parser.add_argument(
-        "destination",
-        help="Path to the destination dataset (e.g. /mnt/pool/backup_dataset)",
-    )
-    parser.add_argument(
-        "--include-secret",
-        action="store_true",
-        help="Include the pwenc_secret key for full recovery",
-    )
-    parser.add_argument(
-        "--retention",
-        type=int,
-        default=5,
-        help="Number of days to keep local exports (default: 5)",
-    )
+    parser = argparse.ArgumentParser(description="Export TrueNAS config for ZFS replication.")
+    parser.add_argument("destination", help="Path to the destination dataset (e.g. /mnt/pool/backup_dataset)")
+    parser.add_argument("--include-secret", action="store_true", help="Include the pwenc_secret key for full recovery")
+    parser.add_argument("--retention", type=int, default=5, help="Number of days to keep local exports (default: 5)")
 
     args = parser.parse_args()
 
@@ -159,9 +139,7 @@ def main():
     # 2. Verify destination
     dest_path = Path(args.destination).resolve()
     if not dest_path.is_dir():
-        print(
-            f"[{time.ctime()}] Error: Destination directory '{dest_path}' does not exist."
-        )
+        print(f"[{time.ctime()}] Error: Destination directory '{dest_path}' does not exist.")
         sys.exit(1)
 
     # 3. Perform export
