@@ -31,7 +31,6 @@
 import argparse
 import subprocess
 import sys
-import os
 from pathlib import Path
 import time
 
@@ -41,7 +40,7 @@ def interface_exists(config: Path):
     print(f"[{time.ctime()}] Checking if interface '{config.stem}' exists.")
     try:
         # wg show returns exit code 0 if the interface is up
-        output = subprocess.check_output(
+        _ = subprocess.check_output(
             ["wg", "show", config.stem], stderr=subprocess.DEVNULL
         )
         print(f"[{time.ctime()}] Interface '{config.stem}' is already up.")
