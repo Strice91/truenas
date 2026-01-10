@@ -89,6 +89,21 @@ class ReplicationTask:
         run_date = datetime.fromtimestamp(self.last_datetime / 1000).date()
         return run_date == date.today()
 
+    def is_within_window(self, window: int) -> bool:
+        """
+        Check if the task finished successfully within the last X hours.
+
+        :param window: allwoed time window in hours since the last replication
+        """
+        if not self.last_datetime or not self.ok:
+            return False
+
+        # Calculate time difference
+        last_run_time = datetime.fromtimestamp(self.last_datetime / 1000)
+        time_diff = datetime.now() - last_run_time
+
+        return time_diff.total_seconds() <= (window * 3600)
+
     @property
     def up_to_date(self) -> bool:
         """
@@ -96,7 +111,7 @@ class ReplicationTask:
 
         :return: True if up-to-date, False otherwise
         """
-        return self.ok() and self.ran_today()
+        return self.ok and self.ran_today
 
 
 def get_replication_tasks() -> list[ReplicationTask]:
@@ -143,10 +158,11 @@ def get_replication_tasks() -> list[ReplicationTask]:
     return tasks
 
 
-def all_replications_up_to_date() -> bool:
+def check_all_replications(window: int) -> bool:
     """
     Check if all enabled replication tasks have successfully completed today.
 
+    :param window: allwoed time window in hours since the last replication
     :return: True if all enabled tasks are up-to-date, False otherwise
     """
     tasks = get_replication_tasks()
@@ -156,12 +172,12 @@ def all_replications_up_to_date() -> bool:
         print(f"[{time.ctime()}] No enabled replication tasks found.")
         return True
 
-    outdated = [t for t in enabled_tasks if not t.up_to_date()]
+    outdated = [t for t in enabled_tasks if not t.is_within_window(window)]
 
     if outdated:
-        print(f"[{time.ctime()}] Replication tasks not up to date:")
+        print(f"[{time.ctime()}] Found outdated replications within the {window}h window:")
         for t in outdated:
-            reason = t.error or f"state={t.state}"
+            reason = t.error or f"state={t.state} (Last run: {datetime.fromtimestamp(t.last_datetime/1000)})"
             print(f"  - {t.name}: {reason}")
         return False
 
@@ -183,7 +199,7 @@ def notify_uptime_kuma(
     """
     status = "up" if up else "down"
     encoded_msg = quote(msg)
-    url = f"https://{kuma_url}/api/push/{kuma_token}?status={status}&msg={encoded_msg}&ping="
+    url = f"{kuma_url}/api/push/{kuma_token}?status={status}&msg={encoded_msg}&ping="
 
     try:
         with urlopen(url, timeout=10) as response:
@@ -214,9 +230,13 @@ def main():
         default="Replication not up to date",
         help="Message when replication failed",
     )
+    parser.add_argument(
+        "--window", type=float, default=24, 
+        help="The rolling window in hours to consider a backup 'current' (default: 24)"
+    )
     args = parser.parse_args()
 
-    if all_replications_up_to_date():
+    if check_all_replications(args.window):
         notify_uptime_kuma(True, args.kuma_url, args.kuma_token, args.msg_up)
         sys.exit(0)
     else:
