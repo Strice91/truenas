@@ -8,7 +8,7 @@ Daily TrueNAS replication health check.
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional
 import time
 import os
@@ -149,12 +149,12 @@ def get_cache_path() -> str:
     return os.path.join(tempfile.gettempdir(), "check_replication_cache.json")
 
 
-def load_replication_cache(window: float) -> Optional[list[dict]]:
+def load_replication_cache(window: float) -> Optional[list[ReplicationTask]]:
     """
     Try to load replication tasks from cache.
     
     :param window: validity window in hours
-    :return: List of dicts (raw tasks) if cache is valid, None otherwise
+    :return: List of ReplicationTask objects if cache is valid, None otherwise
     """
     cache_file = get_cache_path()
     if not os.path.exists(cache_file):
@@ -171,30 +171,34 @@ def load_replication_cache(window: float) -> Optional[list[dict]]:
         with open(cache_file, "r") as f:
             cached_data = json.load(f)
         
-        # Check for RUNNING state
-        for task_data in cached_data:
-            state_val = task_data.get("state", {}).get("state")
-            if state_val == "RUNNING":
+        tasks = []
+        # Check for RUNNING state and reconstruct objects
+        for task_dict in cached_data:
+            # Flattened structure has 'state' as a string field
+            if task_dict.get("state") == "RUNNING":
                 print(f"[{time.ctime()}] Cache exists inside window but contains RUNNING tasks. Refreshing.")
                 return None
+            tasks.append(ReplicationTask(**task_dict))
         
         print(f"[{time.ctime()}] Using cached replication data (age: {age_hours:.2f}h).")
-        return cached_data
+        return tasks
 
     except Exception as e:
         print(f"[{time.ctime()}] WARNING: Failed to read cache: {e}")
         return None
 
 
-def save_replication_cache(data: list[dict]) -> None:
+def save_replication_cache(tasks: list[ReplicationTask]) -> None:
     """
     Save replication tasks to cache.
     
-    :param data: List of dicts (raw tasks)
+    :param tasks: List of ReplicationTask objects
     """
     try:
         with open(get_cache_path(), "w") as f:
+            data = [asdict(t) for t in tasks]
             json.dump(data, f)
+        print(f"[{time.ctime()}] Replication cache updated.")
     except Exception as e:
         print(f"[{time.ctime()}] WARNING: Failed to write cache: {e}")
 
@@ -206,41 +210,40 @@ def get_replication_tasks(cache_validity_hours: float = 0) -> list[ReplicationTa
     :param cache_validity_hours: If > 0, try to read from cache if not older than this many hours.
     :return: List of ReplicationTask objects
     """
-    raw_tasks = None
+    tasks = None
 
     if cache_validity_hours > 0:
-        raw_tasks = load_replication_cache(cache_validity_hours)
+        tasks = load_replication_cache(cache_validity_hours)
 
-    if raw_tasks is None:
-        try:
-            result = subprocess.run(
-                ["midclt", "call", "replication.query"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            print(
-                f"[{time.ctime()}] ERROR: midclt replication.query failed: {e.stderr.strip()}"
-            )
-            return []
+    if tasks is not None:
+        return tasks
 
-        try:
-            raw_tasks = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            print(f"[{time.ctime()}] ERROR: Failed to parse replication.query JSON output")
-            return []
-        
-        if isinstance(raw_tasks, list) and cache_validity_hours > 0:
-            save_replication_cache(raw_tasks)
+    # If we are here, we need to fetch from midclt
+    try:
+        result = subprocess.run(
+            ["midclt", "call", "replication.query"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(
+            f"[{time.ctime()}] ERROR: midclt replication.query failed: {e.stderr.strip()}"
+        )
+        return []
+
+    try:
+        raw_tasks = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print(f"[{time.ctime()}] ERROR: Failed to parse replication.query JSON output")
+        return []
 
     if not isinstance(raw_tasks, list):
         print(f"[{time.ctime()}] ERROR: Unexpected replication.query output format")
         return []
 
-    tasks: list[ReplicationTask] = []
-
+    tasks = []
     for task in raw_tasks:
         try:
             tasks.append(ReplicationTask.from_midclt(task))
@@ -249,6 +252,10 @@ def get_replication_tasks(cache_validity_hours: float = 0) -> list[ReplicationTa
                 f"[{time.ctime()}] WARNING: Skipping malformed replication task "
                 f"(missing field {e})"
             )
+            
+    # Save processed tasks to cache
+    if cache_validity_hours > 0 and tasks:
+        save_replication_cache(tasks)
 
     return tasks
 
