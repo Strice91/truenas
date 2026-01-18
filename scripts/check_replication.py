@@ -11,6 +11,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Optional
 import time
+import os
+import tempfile
 from datetime import datetime, date
 
 from urllib.request import urlopen
@@ -47,6 +49,34 @@ class ReplicationTask:
     def from_midclt(cls, data: dict) -> "ReplicationTask":
         """
         Create a ReplicationTask instance from TrueNAS middleware JSON data.
+
+        A typical task looks like this:
+        {
+            "id": 6,
+            "enabled": true,
+            "name": "some name",
+            "state": {
+                "state": "FINISHED",
+                "datetime": {
+                    "$date": 1768529192000
+                },
+                "warnings": [],
+                "last_snapshot": "path/to/snapshot"
+            },
+        },
+        {
+            "id": 7,
+            "enabled": true,
+            "name": "some other name",
+            "state": {
+                "state": "ERROR",
+                "datetime": {
+                    "$date": 1768753995000
+                },
+                "error": "[Errno 101] Network is unreachable.",
+                "last_snapshot": "path/to/another_snapshot"
+            },
+        }
 
         :param data: Dictionary from `midclt call replication.query`
         :return: ReplicationTask instance
@@ -114,31 +144,96 @@ class ReplicationTask:
         return self.ok and self.ran_today
 
 
-def get_replication_tasks() -> list[ReplicationTask]:
+def get_cache_path() -> str:
+    """Return the path to the replication status cache file."""
+    return os.path.join(tempfile.gettempdir(), "check_replication_cache.json")
+
+
+def load_replication_cache(window: float) -> Optional[list[dict]]:
+    """
+    Try to load replication tasks from cache.
+    
+    :param window: validity window in hours
+    :return: List of dicts (raw tasks) if cache is valid, None otherwise
+    """
+    cache_file = get_cache_path()
+    if not os.path.exists(cache_file):
+        return None
+
+    try:
+        mtime = os.path.getmtime(cache_file)
+        age_hours = (time.time() - mtime) / 3600
+        
+        if age_hours > window:
+            print(f"[{time.ctime()}] Cache expired (age: {age_hours:.2f}h > {window}h). Refreshing.")
+            return None
+
+        with open(cache_file, "r") as f:
+            cached_data = json.load(f)
+        
+        # Check for RUNNING state
+        for task_data in cached_data:
+            state_val = task_data.get("state", {}).get("state")
+            if state_val == "RUNNING":
+                print(f"[{time.ctime()}] Cache exists inside window but contains RUNNING tasks. Refreshing.")
+                return None
+        
+        print(f"[{time.ctime()}] Using cached replication data (age: {age_hours:.2f}h).")
+        return cached_data
+
+    except Exception as e:
+        print(f"[{time.ctime()}] WARNING: Failed to read cache: {e}")
+        return None
+
+
+def save_replication_cache(data: list[dict]) -> None:
+    """
+    Save replication tasks to cache.
+    
+    :param data: List of dicts (raw tasks)
+    """
+    try:
+        with open(get_cache_path(), "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"[{time.ctime()}] WARNING: Failed to write cache: {e}")
+
+
+def get_replication_tasks(cache_validity_hours: float = 0) -> list[ReplicationTask]:
     """
     Query TrueNAS middleware for replication tasks and return ReplicationTask objects.
-
+    
+    :param cache_validity_hours: If > 0, try to read from cache if not older than this many hours.
     :return: List of ReplicationTask objects
     """
-    try:
-        result = subprocess.run(
-            ["midclt", "call", "replication.query"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-    except subprocess.CalledProcessError as e:
-        print(
-            f"[{time.ctime()}] ERROR: midclt replication.query failed: {e.stderr.strip()}"
-        )
-        return []
+    raw_tasks = None
 
-    try:
-        raw_tasks = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        print(f"[{time.ctime()}] ERROR: Failed to parse replication.query JSON output")
-        return []
+    if cache_validity_hours > 0:
+        raw_tasks = load_replication_cache(cache_validity_hours)
+
+    if raw_tasks is None:
+        try:
+            result = subprocess.run(
+                ["midclt", "call", "replication.query"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            print(
+                f"[{time.ctime()}] ERROR: midclt replication.query failed: {e.stderr.strip()}"
+            )
+            return []
+
+        try:
+            raw_tasks = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            print(f"[{time.ctime()}] ERROR: Failed to parse replication.query JSON output")
+            return []
+        
+        if isinstance(raw_tasks, list) and cache_validity_hours > 0:
+            save_replication_cache(raw_tasks)
 
     if not isinstance(raw_tasks, list):
         print(f"[{time.ctime()}] ERROR: Unexpected replication.query output format")
@@ -158,14 +253,15 @@ def get_replication_tasks() -> list[ReplicationTask]:
     return tasks
 
 
-def check_all_replications(window: int) -> bool:
+def check_all_replications(window: int, enable_cache: bool = False) -> bool:
     """
     Check if all enabled replication tasks have successfully completed today.
 
     :param window: allwoed time window in hours since the last replication
+    :param enable_cache: Whether to use cached replication state
     :return: True if all enabled tasks are up-to-date, False otherwise
     """
-    tasks = get_replication_tasks()
+    tasks = get_replication_tasks(window if enable_cache else 0)
     enabled_tasks = [t for t in tasks if t.enabled]
 
     if not enabled_tasks:
@@ -234,9 +330,13 @@ def main():
         "--window", type=float, default=24, 
         help="The rolling window in hours to consider a backup 'current' (default: 24)"
     )
+    parser.add_argument(
+        "--enable-cache", action="store_true",
+        help="Enable caching of replication state to avoid waking up drives"
+    )
     args = parser.parse_args()
 
-    if check_all_replications(args.window):
+    if check_all_replications(args.window, args.enable_cache):
         notify_uptime_kuma(True, args.kuma_url, args.kuma_token, args.msg_up)
         sys.exit(0)
     else:
