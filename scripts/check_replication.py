@@ -149,11 +149,11 @@ def get_cache_path() -> str:
     return os.path.join(tempfile.gettempdir(), "check_replication_cache.json")
 
 
-def load_replication_cache(window: float) -> Optional[list[ReplicationTask]]:
+def load_replication_cache(ttl_minutes: float) -> Optional[list[ReplicationTask]]:
     """
     Try to load replication tasks from cache.
     
-    :param window: validity window in hours
+    :param ttl_minutes: cache validity in minutes
     :return: List of ReplicationTask objects if cache is valid, None otherwise
     """
     cache_file = get_cache_path()
@@ -162,10 +162,10 @@ def load_replication_cache(window: float) -> Optional[list[ReplicationTask]]:
 
     try:
         mtime = os.path.getmtime(cache_file)
-        age_hours = (time.time() - mtime) / 3600
+        age_minutes = (time.time() - mtime) / 60
         
-        if age_hours > window:
-            print(f"[{time.ctime()}] Cache expired (age: {age_hours:.2f}h > {window}h). Refreshing.")
+        if age_minutes > ttl_minutes:
+            print(f"[{time.ctime()}] Cache expired (age: {age_minutes:.2f}m > {ttl_minutes}m). Refreshing.")
             return None
 
         with open(cache_file, "r") as f:
@@ -176,11 +176,11 @@ def load_replication_cache(window: float) -> Optional[list[ReplicationTask]]:
         for task_dict in cached_data:
             # Flattened structure has 'state' as a string field
             if task_dict.get("state") == "RUNNING":
-                print(f"[{time.ctime()}] Cache exists inside window but contains RUNNING tasks. Refreshing.")
+                print(f"[{time.ctime()}] Cache exists inside TTL but contains RUNNING tasks. Refreshing.")
                 return None
             tasks.append(ReplicationTask(**task_dict))
         
-        print(f"[{time.ctime()}] Using cached replication data (age: {age_hours:.2f}h).")
+        print(f"[{time.ctime()}] Using cached replication data (age: {age_minutes:.2f}m).")
         return tasks
 
     except Exception as e:
@@ -203,20 +203,21 @@ def save_replication_cache(tasks: list[ReplicationTask]) -> None:
         print(f"[{time.ctime()}] WARNING: Failed to write cache: {e}")
 
 
-def get_replication_tasks(cache_validity_hours: float = 0) -> list[ReplicationTask]:
+def get_replication_tasks(cache_ttl_minutes: float = 0, force_refresh: bool = False) -> tuple[list[ReplicationTask], bool]:
     """
     Query TrueNAS middleware for replication tasks and return ReplicationTask objects.
     
-    :param cache_validity_hours: If > 0, try to read from cache if not older than this many hours.
-    :return: List of ReplicationTask objects
+    :param cache_ttl_minutes: If > 0, try to read from cache if not older than this many minutes.
+    :param force_refresh: If True, ignore cache and fetch fresh data.
+    :return: Tuple of (List of ReplicationTask objects, bool indicating if data was from cache)
     """
     tasks = None
 
-    if cache_validity_hours > 0:
-        tasks = load_replication_cache(cache_validity_hours)
+    if not force_refresh and cache_ttl_minutes > 0:
+        tasks = load_replication_cache(cache_ttl_minutes)
 
     if tasks is not None:
-        return tasks
+        return tasks, True
 
     # If we are here, we need to fetch from midclt
     try:
@@ -231,17 +232,17 @@ def get_replication_tasks(cache_validity_hours: float = 0) -> list[ReplicationTa
         print(
             f"[{time.ctime()}] ERROR: midclt replication.query failed: {e.stderr.strip()}"
         )
-        return []
+        return [], False
 
     try:
         raw_tasks = json.loads(result.stdout)
     except json.JSONDecodeError:
         print(f"[{time.ctime()}] ERROR: Failed to parse replication.query JSON output")
-        return []
+        return [], False
 
     if not isinstance(raw_tasks, list):
         print(f"[{time.ctime()}] ERROR: Unexpected replication.query output format")
-        return []
+        return [], False
 
     tasks = []
     for task in raw_tasks:
@@ -254,33 +255,47 @@ def get_replication_tasks(cache_validity_hours: float = 0) -> list[ReplicationTa
             )
             
     # Save processed tasks to cache
-    if cache_validity_hours > 0 and tasks:
+    if cache_ttl_minutes > 0 and tasks:
         save_replication_cache(tasks)
 
-    return tasks
+    return tasks, False
 
 
-def check_all_replications(window: int, enable_cache: bool = False) -> bool:
+def check_all_replications(window: int, cache_ttl: float = 0) -> bool:
     """
-    Check if all enabled replication tasks have successfully completed today.
+    Check if all enabled replication tasks have successfully completed within the window.
 
-    :param window: allwoed time window in hours since the last replication
-    :param enable_cache: Whether to use cached replication state
+    :param window: allowed time window in hours since the last replication
+    :param cache_ttl: cache validity in minutes
     :return: True if all enabled tasks are up-to-date, False otherwise
     """
-    tasks = get_replication_tasks(window if enable_cache else 0)
+    tasks, from_cache = get_replication_tasks(cache_ttl, force_refresh=False)
+    
     enabled_tasks = [t for t in tasks if t.enabled]
 
     if not enabled_tasks:
         print(f"[{time.ctime()}] No enabled replication tasks found.")
         return True
 
+    # Check for potential issues
     outdated = [t for t in enabled_tasks if not t.is_within_window(window)]
+    
+    # If we found any problems (outdated or error) AND we used cache, 
+    # we must ensure it's not just a stale cache. verify with fresh data.
+    # We also check for errors explicitly on enabled tasks.
+    has_errors = any(t.error for t in enabled_tasks)
+    
+    if (outdated or has_errors) and from_cache:
+        print(f"[{time.ctime()}] Found outdated/failed tasks in cache. Forcing refresh to confirm.")
+        tasks, from_cache = get_replication_tasks(cache_ttl, force_refresh=True)
+        # Re-evaluate with fresh data
+        enabled_tasks = [t for t in tasks if t.enabled]
+        outdated = [t for t in enabled_tasks if not t.is_within_window(window)]
 
     if outdated:
         print(f"[{time.ctime()}] Found outdated replications within the {window}h window:")
         for t in outdated:
-            reason = t.error or f"state={t.state} (Last run: {datetime.fromtimestamp(t.last_datetime/1000)})"
+            reason = t.error or f"state={t.state} (Last run: {datetime.fromtimestamp(t.last_datetime/1000) if t.last_datetime else 'Never'})"
             print(f"  - {t.name}: {reason}")
         return False
 
@@ -338,12 +353,12 @@ def main():
         help="The rolling window in hours to consider a backup 'current' (default: 24)"
     )
     parser.add_argument(
-        "--enable-cache", action="store_true",
-        help="Enable caching of replication state to avoid waking up drives"
+        "--cache-ttl", type=float, default=60,
+        help="Cache validity duration in minutes (default: 60). Set to 0 to disable cache."
     )
     args = parser.parse_args()
 
-    if check_all_replications(args.window, args.enable_cache):
+    if check_all_replications(args.window, args.cache_ttl):
         notify_uptime_kuma(True, args.kuma_url, args.kuma_token, args.msg_up)
         sys.exit(0)
     else:
