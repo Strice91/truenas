@@ -40,9 +40,7 @@ def interface_exists(config: Path):
     print(f"[{time.ctime()}] Checking if interface '{config.stem}' exists.")
     try:
         # wg show returns exit code 0 if the interface is up
-        _ = subprocess.check_output(
-            ["wg", "show", config.stem], stderr=subprocess.DEVNULL
-        )
+        _ = subprocess.check_output(["wg", "show", config.stem], stderr=subprocess.DEVNULL)
         print(f"[{time.ctime()}] Interface '{config.stem}' is already up.")
         return True
     except subprocess.CalledProcessError:
@@ -61,28 +59,18 @@ def bring_up_interface(config: Path):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        print(
-            f"[{time.ctime()}] WireGuard interface '{config.stem}' from '{config}' brought up successfully."
-        )
+        print(f"[{time.ctime()}] WireGuard interface '{config.stem}' from '{config}' brought up successfully.")
     except subprocess.CalledProcessError as e:
-        print(
-            f"[{time.ctime()}] Failed to bring up WireGuard interface '{config.stem}' from '{config}': {e}"
-        )
+        print(f"[{time.ctime()}] Failed to bring up WireGuard interface '{config.stem}' from '{config}': {e}")
         # Exit with a non-zero code if interface creation fails
         sys.exit(1)
 
 
 def main():
     print("### Establish Wireguard Connection ###")
-    parser = argparse.ArgumentParser(
-        description="Bring up a WireGuard interface if it's not already up."
-    )
-    parser.add_argument(
-        "--interface", help="Name of the WireGuard interface (e.g. wg0)"
-    )
-    parser.add_argument(
-        "--config", help="Path to a WireGuard config file (e.g. /mnt/user/wg0.conf)"
-    )
+    parser = argparse.ArgumentParser(description="Bring up a WireGuard interface if it's not already up.")
+    parser.add_argument("--interface", help="Name of the WireGuard interface (e.g. wg0)")
+    parser.add_argument("--config", help="Path to a WireGuard config file (e.g. /mnt/user/wg0.conf)")
     args = parser.parse_args()
 
     # Require at least one argument
@@ -90,9 +78,7 @@ def main():
         parser.error("You must specify either --interface or --config.")
 
     # Build path to config
-    config = Path(
-        args.config if args.config else f"/etc/wireguard/{args.interface}.conf"
-    ).resolve()
+    config = Path(args.config if args.config else f"/etc/wireguard/{args.interface}.conf").resolve()
     print(f"[{time.ctime()}] Using config file '{config}'")
 
     # 1. Check for configuration file

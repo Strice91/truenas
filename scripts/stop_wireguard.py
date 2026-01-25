@@ -46,8 +46,10 @@ import sys
 from pathlib import Path
 from enum import Enum
 
+
 class JobState(Enum):
     """Valid job states for TrueNAS core.get_jobs."""
+
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
@@ -56,8 +58,9 @@ class JobState(Enum):
     BLOCKED = "BLOCKED"
     PENDING = "PENDING"
 
+
 def get_zfs_replication_jobs(state: JobState | None = None) -> list:
-    """ 
+    """
     Query TrueNAS middleware for replication jobs, optionally filtered by state.
 
     :param state: Optional JobState to filter by (e.g., RUNNING)
@@ -79,10 +82,11 @@ def get_zfs_replication_jobs(state: JobState | None = None) -> list:
     jobs = json.loads(result.stdout)
     return jobs
 
+
 def replication_running() -> bool:
     """
     Check if any ZFS replication jobs are currently running.
-    
+
     :return: True if at least one replication job is RUNNING, False otherwise
     """
     jobs = get_zfs_replication_jobs(JobState.RUNNING)
@@ -153,13 +157,11 @@ def main():
         parser.error("You must specify either --interface or --config.")
 
     # Build path to config
-    config =  Path(args.config if args.config else f"/etc/wireguard/{args.interface}.conf").resolve()
+    config = Path(args.config if args.config else f"/etc/wireguard/{args.interface}.conf").resolve()
 
     # --- Initial Interface Check ---
     if not interface_is_up(config):
-        print(
-            f"[{time.ctime()}] Interface '{config.stem}' is already down. Exiting immediately."
-        )
+        print(f"[{time.ctime()}] Interface '{config.stem}' is already down. Exiting immediately.")
         sys.exit(0)
 
     print(f"[{time.ctime()}] Interface '{config.stem}' is UP. Starting ZFS replication monitor.")
@@ -167,9 +169,7 @@ def main():
     # Use script start time as the reference for the grace period
     start_time = time.time()
 
-    print(
-        f"[{time.ctime()}] Duration (Grace Period): {args.timeout}s | Polling Interval: {args.interval}s"
-    )
+    print(f"[{time.ctime()}] Duration (Grace Period): {args.timeout}s | Polling Interval: {args.interval}s")
 
     try:
         # Loop runs until the timeout expires
@@ -194,9 +194,7 @@ def main():
                 break
 
         # If the loop finished without finding activity, the grace period is over.
-        print(
-            f"[{time.ctime()}] Grace period ({args.timeout}s) expired. No replication detected."
-        )
+        print(f"[{time.ctime()}] Grace period ({args.timeout}s) expired. No replication detected.")
 
         # Since we checked if the interface was up at the start, we can proceed to bring it down.
         # However, checking again ensures idempotency in case of external changes.
@@ -204,9 +202,7 @@ def main():
             bring_down_interface(config)
         else:
             # This path is highly unlikely but included for robustness
-            print(
-                f"[{time.ctime()}] Interface '{config.stem}' was already down. No action needed."
-            )
+            print(f"[{time.ctime()}] Interface '{config.stem}' was already down. No action needed.")
 
         sys.exit(0)
 

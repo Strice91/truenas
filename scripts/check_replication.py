@@ -89,9 +89,7 @@ class ReplicationTask:
             enabled=data.get("enabled", False),
             state=state_block.get("state"),
             last_datetime=(
-                state_block.get("datetime", {}).get("$date")
-                if isinstance(state_block.get("datetime"), dict)
-                else None
+                state_block.get("datetime", {}).get("$date") if isinstance(state_block.get("datetime"), dict) else None
             ),
             last_snapshot=state_block.get("last_snapshot"),
             error=state_block.get("error"),
@@ -152,7 +150,7 @@ def get_cache_path() -> str:
 def load_replication_cache(ttl_minutes: float) -> Optional[list[ReplicationTask]]:
     """
     Try to load replication tasks from cache.
-    
+
     :param ttl_minutes: cache validity in minutes
     :return: List of ReplicationTask objects if cache is valid, None otherwise
     """
@@ -163,14 +161,14 @@ def load_replication_cache(ttl_minutes: float) -> Optional[list[ReplicationTask]
     try:
         mtime = os.path.getmtime(cache_file)
         age_minutes = (time.time() - mtime) / 60
-        
+
         if age_minutes > ttl_minutes:
             print(f"[{time.ctime()}] Cache expired (age: {age_minutes:.2f}m > {ttl_minutes}m). Refreshing.")
             return None
 
         with open(cache_file, "r") as f:
             cached_data = json.load(f)
-        
+
         tasks = []
         # Check for RUNNING state and reconstruct objects
         for task_dict in cached_data:
@@ -179,7 +177,7 @@ def load_replication_cache(ttl_minutes: float) -> Optional[list[ReplicationTask]
                 print(f"[{time.ctime()}] Cache exists inside TTL but contains RUNNING tasks. Refreshing.")
                 return None
             tasks.append(ReplicationTask(**task_dict))
-        
+
         print(f"[{time.ctime()}] Using cached replication data (age: {age_minutes:.2f}m).")
         return tasks
 
@@ -191,7 +189,7 @@ def load_replication_cache(ttl_minutes: float) -> Optional[list[ReplicationTask]
 def save_replication_cache(tasks: list[ReplicationTask]) -> None:
     """
     Save replication tasks to cache.
-    
+
     :param tasks: List of ReplicationTask objects
     """
     try:
@@ -203,10 +201,12 @@ def save_replication_cache(tasks: list[ReplicationTask]) -> None:
         print(f"[{time.ctime()}] WARNING: Failed to write cache: {e}")
 
 
-def get_replication_tasks(cache_ttl_minutes: float = 0, force_refresh: bool = False) -> tuple[list[ReplicationTask], bool]:
+def get_replication_tasks(
+    cache_ttl_minutes: float = 0, force_refresh: bool = False
+) -> tuple[list[ReplicationTask], bool]:
     """
     Query TrueNAS middleware for replication tasks and return ReplicationTask objects.
-    
+
     :param cache_ttl_minutes: If > 0, try to read from cache if not older than this many minutes.
     :param force_refresh: If True, ignore cache and fetch fresh data.
     :return: Tuple of (List of ReplicationTask objects, bool indicating if data was from cache)
@@ -229,9 +229,7 @@ def get_replication_tasks(cache_ttl_minutes: float = 0, force_refresh: bool = Fa
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        print(
-            f"[{time.ctime()}] ERROR: midclt replication.query failed: {e.stderr.strip()}"
-        )
+        print(f"[{time.ctime()}] ERROR: midclt replication.query failed: {e.stderr.strip()}")
         return [], False
 
     try:
@@ -249,11 +247,8 @@ def get_replication_tasks(cache_ttl_minutes: float = 0, force_refresh: bool = Fa
         try:
             tasks.append(ReplicationTask.from_midclt(task))
         except KeyError as e:
-            print(
-                f"[{time.ctime()}] WARNING: Skipping malformed replication task "
-                f"(missing field {e})"
-            )
-            
+            print(f"[{time.ctime()}] WARNING: Skipping malformed replication task " f"(missing field {e})")
+
     # Save processed tasks to cache
     if cache_ttl_minutes > 0 and tasks:
         save_replication_cache(tasks)
@@ -270,7 +265,7 @@ def check_all_replications(window: int, cache_ttl: float = 0) -> bool:
     :return: True if all enabled tasks are up-to-date, False otherwise
     """
     tasks, from_cache = get_replication_tasks(cache_ttl, force_refresh=False)
-    
+
     enabled_tasks = [t for t in tasks if t.enabled]
 
     if not enabled_tasks:
@@ -279,12 +274,12 @@ def check_all_replications(window: int, cache_ttl: float = 0) -> bool:
 
     # Check for potential issues
     outdated = [t for t in enabled_tasks if not t.is_within_window(window)]
-    
-    # If we found any problems (outdated or error) AND we used cache, 
+
+    # If we found any problems (outdated or error) AND we used cache,
     # we must ensure it's not just a stale cache. verify with fresh data.
     # We also check for errors explicitly on enabled tasks.
     has_errors = any(t.error for t in enabled_tasks)
-    
+
     if (outdated or has_errors) and from_cache:
         print(f"[{time.ctime()}] Found outdated/failed tasks in cache. Forcing refresh to confirm.")
         tasks, from_cache = get_replication_tasks(cache_ttl, force_refresh=True)
@@ -295,7 +290,10 @@ def check_all_replications(window: int, cache_ttl: float = 0) -> bool:
     if outdated:
         print(f"[{time.ctime()}] Found outdated replications within the {window}h window:")
         for t in outdated:
-            reason = t.error or f"state={t.state} (Last run: {datetime.fromtimestamp(t.last_datetime/1000) if t.last_datetime else 'Never'})"
+            reason = (
+                t.error
+                or f"state={t.state} (Last run: {datetime.fromtimestamp(t.last_datetime/1000) if t.last_datetime else 'Never'})"
+            )
             print(f"  - {t.name}: {reason}")
         return False
 
@@ -303,9 +301,7 @@ def check_all_replications(window: int, cache_ttl: float = 0) -> bool:
     return True
 
 
-def notify_uptime_kuma(
-    up: bool, kuma_url: str, kuma_token: str, msg: str = "OK"
-) -> bool:
+def notify_uptime_kuma(up: bool, kuma_url: str, kuma_token: str, msg: str = "OK") -> bool:
     """
     Send a simple up/down ping to an Uptime Kuma monitor.
 
@@ -324,46 +320,42 @@ def notify_uptime_kuma(
             code = response.getcode()
         if 200 <= code < 300:
             print(f"[{time.ctime()}] Uptime Kuma notified successfully ({status}).")
-            return True
+            sys.exit(0)
         print(f"[{time.ctime()}] WARNING: Uptime Kuma returned HTTP {code}.")
-        return False
+        sys.exit(1)
     except Exception as e:
         print(f"[{time.ctime()}] ERROR: Failed to notify Uptime Kuma ({status}): {e}")
-        return False
+        sys.exit(1)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Check TrueNAS replication health and notify Uptime Kuma."
-    )
-    parser.add_argument(
-        "--kuma-url", required=True, help="Uptime Kuma base URL, e.g., kuma.example.com"
-    )
+    parser = argparse.ArgumentParser(description="Check TrueNAS replication health and notify Uptime Kuma.")
+    parser.add_argument("--kuma-url", required=True, help="Uptime Kuma base URL, e.g., kuma.example.com")
     parser.add_argument("--kuma-token", required=True, help="Uptime Kuma push token")
-    parser.add_argument(
-        "--msg-up", default="Replication OK", help="Message when replication is healthy"
-    )
+    parser.add_argument("--msg-up", default="Replication OK", help="Message when replication is healthy")
     parser.add_argument(
         "--msg-down",
         default="Replication not up to date",
         help="Message when replication failed",
     )
     parser.add_argument(
-        "--window", type=float, default=24, 
-        help="The rolling window in hours to consider a backup 'current' (default: 24)"
+        "--window",
+        type=float,
+        default=24,
+        help="The rolling window in hours to consider a backup 'current' (default: 24)",
     )
     parser.add_argument(
-        "--cache-ttl", type=float, default=60,
-        help="Cache validity duration in minutes (default: 60). Set to 0 to disable cache."
+        "--cache-ttl",
+        type=float,
+        default=60,
+        help="Cache validity duration in minutes (default: 60). Set to 0 to disable cache.",
     )
     args = parser.parse_args()
 
     if check_all_replications(args.window, args.cache_ttl):
         notify_uptime_kuma(True, args.kuma_url, args.kuma_token, args.msg_up)
-        sys.exit(0)
     else:
         notify_uptime_kuma(False, args.kuma_url, args.kuma_token, args.msg_down)
-        sys.exit(1)
 
 
 if __name__ == "__main__":

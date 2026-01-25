@@ -127,9 +127,21 @@ def main():
     print("### TrueNAS Configuration Export ###")
 
     parser = argparse.ArgumentParser(description="Export TrueNAS config for ZFS replication.")
-    parser.add_argument("destination", help="Path to the destination dataset (e.g. /mnt/pool/backup_dataset)")
-    parser.add_argument("--include-secret", action="store_true", help="Include the pwenc_secret key for full recovery")
-    parser.add_argument("--retention", type=int, default=5, help="Number of days to keep local exports (default: 5)")
+    parser.add_argument(
+        "destination",
+        help="Path to the destination dataset (e.g. /mnt/pool/backup_dataset)",
+    )
+    parser.add_argument(
+        "--include-secret",
+        action="store_true",
+        help="Include the pwenc_secret key for full recovery",
+    )
+    parser.add_argument(
+        "--retention",
+        type=int,
+        default=5,
+        help="Number of days to keep local exports (default: 5)",
+    )
 
     args = parser.parse_args()
 
