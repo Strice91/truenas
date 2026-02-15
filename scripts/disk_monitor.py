@@ -18,9 +18,9 @@ def get_disk_status(drive):
         # 0: Device is awake and responding -> Active
         # 2: Device was in a low-power mode -> Standby
         if result.returncode == 2:
-            return "S"
+            return "0"
         elif result.returncode == 0:
-            return "A"
+            return "1"
         else:
             return "?" # Unknown/Error
             
